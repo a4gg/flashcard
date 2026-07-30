@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>Flashcard Review</title>
+
+<style>
+:root {
+    --bg-color: #e0e0c0;
+    --text-color: #0f0f00;
+    --stats-bg: #f2f2f2;
+    --btn-bg: #f0f0f0;
+    --btn-text: #000000;
+    --btn-border: #767676;
+}
+
+body.dark-mode {
+    --bg-color: #1e1e00;
+    --text-color: #e0e0e0;
+    --stats-bg: #2d2d2d;
+    --btn-bg: #333333;
+    --btn-text: #ffffff;
+    --btn-border: #555555;
+}
+
+body {
+    margin: 20px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+}
+
+button {
+    margin: 3px;
+    padding: 8px 12px;
+    background-color: var(--btn-bg);
+    color: var(--btn-text);
+    border: 1px solid var(--btn-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#controls {
+    margin-bottom: 20px;
+}
+
+.card {
+    padding: 12px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+}
+
+.itemText {
+    white-space: pre-wrap;
+    margin-bottom: 10px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.stats {
+    margin: 10px 0;
+    padding: 10px;
+    background: var(--stats-bg);
+}
+
+.hidden {
+    display: none;
+}
+
+.pageControls {
+    margin-top: 20px;
+}
+</style>
+</head>
+
+<!-- Body defaults to dark mode -->
+<body class="dark-mode">
+
+<h2>Flashcard Review</h2>
+
+<div id="controls">
+
+<input type="file" id="fileInput" accept=".json">
+
+<button onclick="loadJson()">Load JSON</button>
+
+<button onclick="testNew()">Test New</button>
+
+<button onclick="reviewSomewhat()">Review 1</button>
+
+<button onclick="reviewDontKnow()">Review 2</button>
+
+<button onclick="resetAll()">Reset All</button>
+
+<button onclick="saveProgress()">Save Progress</button>
+
+<!-- Mode switch button -->
+<button id="themeToggleBtn" onclick="toggleTheme()">Switch to Light Mode</button>
+
+</div>
+
+
+<div id="content"></div>
+<div class="stats" id="stats">
+No file loaded.
+</div>
+
+<script>
+
+let data = [];
+
+let currentMode = "";
+let reviewList = [];
+let currentPage = 0;
+
+function toggleTheme() {
+    const body = document.body;
+    const btn = document.getElementById("themeToggleBtn");
+    
+    body.classList.toggle("dark-mode");
+    
+    if (body.classList.contains("dark-mode")) {
+        btn.textContent = "Switch to Light Mode";
+    } else {
+        btn.textContent = "Switch to Dark Mode";
+    }
+}
+
+function updateStats() {
+
+    let newCount = data.filter(x => x.state === 0).length;
+    let somewhatCount = data.filter(x => x.state === 1).length;
+    let dontKnowCount = data.filter(x => x.state === 2).length;
+    let knowCount = data.filter(x => x.state === 3).length;
+
+    document.getElementById("stats").innerHTML =
+        `
+        Total: ${data.length}
+        | New: ${newCount}
+        | Somewhat: ${somewhatCount}
+        | Don't Know: ${dontKnowCount}
+        | Know: ${knowCount}
+        `;
+}
+
+function loadJson() {
+
+    const file = document.getElementById("fileInput").files[0];
+
+    if (!file) {
+        alert("Choose a JSON file first.");
+        return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+
+        try {
+
+            data = JSON.parse(e.target.result);
+
+            updateStats();
+
+            document.getElementById("content").innerHTML =
+                "<p>Loaded successfully.</p>";
+
+        } catch(err) {
+            alert("Invalid JSON.");
+        }
+
+    };
+
+    reader.readAsText(file);
+}
+
+function saveProgress() {
+
+    if (!data.length) {
+        alert("No data loaded.");
+        return;
+    }
+
+    const blob = new Blob(
+        [JSON.stringify(data, null, 2)],
+        {type:"application/json"}
+    );
+
+    const a = document.createElement("a");
+
+    a.href = URL.createObjectURL(blob);
+
+    a.download = "dictionary_progress.json";
+
+    a.click();
+}
+
+function setState(index, state) {
+
+    data[index].state = state;
+
+    updateStats();
+
+    if (currentMode === "new") {
+        testNew();
+    } else {
+        renderReviewPage();
+    }
+}
+
+function testNew() {
+
+    currentMode = "new";
+
+    const candidates = [];
+
+    data.forEach((item, idx) => {
+        if (item.state === 0) {
+            candidates.push(idx);
+        }
+    });
+
+    const content = document.getElementById("content");
+
+    if (candidates.length === 0) {
+
+        content.innerHTML =
+            "<h3>No new items remaining.</h3>";
+
+        return;
+    }
+
+    const idx =
+        candidates[Math.floor(Math.random() * candidates.length)];
+
+    const item = data[idx];
+
+    content.innerHTML = `
+        <div class="card">
+
+            <div id="i2" class="itemText" tabindex="-1">${escapeHtml(item.item)}</div>
+
+            <button onclick="setState(${idx},3)">I Know</button>
+
+            <button onclick="setState(${idx},1)">Somewhat</button>
+
+            <button onclick="setState(${idx},2)">Don't Know</button>
+
+            <button onclick="testNew()">Skip Now</button>
+
+        </div>
+    `;
+    document.getElementById("i2").focus();
+}
+
+function reviewSomewhat() {
+
+    currentMode = "somewhat";
+
+    reviewList = [];
+
+    data.forEach((item, idx) => {
+        if (item.state === 1) {
+            reviewList.push(idx);
+        }
+    });
+
+    shuffle(reviewList);
+
+    currentPage = 0;
+
+    renderReviewPage();
+}
+
+function reviewDontKnow() {
+
+    currentMode = "dontknow";
+
+    reviewList = [];
+
+    data.forEach((item, idx) => {
+        if (item.state === 2) {
+            reviewList.push(idx);
+        }
+    });
+
+    shuffle(reviewList);
+
+    currentPage = 0;
+
+    renderReviewPage();
+}
+
+function renderReviewPage() {
+
+    const content = document.getElementById("content");
+
+    if (reviewList.length === 0) {
+
+        content.innerHTML =
+            "<h3>No items in this category.</h3>";
+
+        return;
+    }
+
+    let html = "";
+
+    let start = currentPage * 20;
+    let end = Math.min(start + 20, reviewList.length);
+
+    html += `<h3>Items ${start + 1} - ${end}
+             of ${reviewList.length}</h3>`;
+
+    for (let i = start; i < end; i++) {
+
+        const idx = reviewList[i];
+        const item = data[idx];
+
+        html += `
+        <div class="card">
+
+            <div class="itemText">
+            ${escapeHtml(item.item)}
+            </div>
+
+            <button onclick="setState(${idx},3)">
+            I Know
+            </button>
+
+            <button onclick="setState(${idx},1)">
+            Somewhat
+            </button>
+
+            <button onclick="setState(${idx},2)">
+            Don't Know
+            </button>
+
+        </div>
+        `;
+    }
+
+    html += `
+    <div class="pageControls">
+
+        <button
+        onclick="prevPage()"
+        ${currentPage===0 ? "disabled" : ""}>
+        Previous
+        </button>
+
+        <button
+        onclick="nextPage()"
+        ${(currentPage+1)*20 >= reviewList.length
+            ? "disabled"
+            : ""}>
+        Next
+        </button>
+
+    </div>
+    `;
+
+    content.innerHTML = html;
+}
+
+function prevPage() {
+
+    if (currentPage > 0) {
+        currentPage--;
+        renderReviewPage();
+    }
+}
+
+function nextPage() {
+
+    if ((currentPage+1)*20 < reviewList.length) {
+        currentPage++;
+        renderReviewPage();
+    }
+}
+
+function resetAll() {
+
+    if (!confirm("Reset all states to New?"))
+        return;
+
+    data.forEach(item => item.state = 0);
+
+    updateStats();
+
+    document.getElementById("content").innerHTML =
+        "<p>All items reset.</p>";
+}
+
+function shuffle(array) {
+
+    for (let i=array.length-1; i>0; i--) {
+
+        let j = Math.floor(Math.random()*(i+1));
+
+        [array[i], array[j]] =
+        [array[j], array[i]];
+    }
+}
+
+function escapeHtml(text) {
+
+    return text
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;")
+        .replace(/\n/g,"<br>");
+}
+
+</script>
+
+</body></html>
